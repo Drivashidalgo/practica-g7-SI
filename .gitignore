@@ -1,8 +1,14 @@
 ### IntelliJ IDEA ###
+.idea/
+*.iml
 out/
 !**/src/main/**/out/
 !**/src/test/**/out/
 .kotlin
+
+### Archivos generados por la simulación ###
+data/transactions_live.csv
+data/transacciones_live.csv
 
 ### Eclipse ###
 .apt_generated
