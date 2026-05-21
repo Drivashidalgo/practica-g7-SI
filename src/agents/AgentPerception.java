@@ -3,7 +3,7 @@ package agents;
 import behaviours.LeerCSVLiveBehaviour;
 import jade.core.Agent;
 
-public class AgentePercepcion extends Agent {
+public class AgentPerception extends Agent {
 
     @Override
     protected void setup() {
