@@ -7,7 +7,7 @@ public class SimuladorTransacciones {
     public static void main(String[] args) {
         String archivoOriginal = "data/transactions.csv";
         String archivoLive = "data/transactions_live.csv";
-        int intervaloMs = 1000;
+        int intervaloMs = 10;
 
         try (
                 BufferedReader reader = new BufferedReader(new FileReader(archivoOriginal));
@@ -30,12 +30,19 @@ public class SimuladorTransacciones {
             String linea;
 
             while ((linea = reader.readLine()) != null) {
+                String[] cols = linea.split(",");
+                // cols[5] es TIMESTAMP, saltamos las <= 100
+                if (cols.length > 5) {
+                    try {
+                        int ts = Integer.parseInt(cols[5].trim());
+                        if (ts <= 100) continue; // ignorar histórico
+                    } catch (NumberFormatException ignored) {}
+                }
+
                 writer.write(linea);
                 writer.newLine();
                 writer.flush();
-
                 System.out.println("Nueva transacción generada: " + linea);
-
                 Thread.sleep(intervaloMs);
             }
 
