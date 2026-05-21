@@ -7,7 +7,8 @@ out/
 
 ### Archivos generados por la simulación ###
 data/transactions_live.csv
-data/transacciones_live.csv
+APDescription.txt
+MTPs-*.txt
 
 ### Eclipse ###
 .apt_generated
