@@ -10,11 +10,33 @@ import jade.domain.FIPAException;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Behaviour principal de AgentScoring.
+ *
+ * Espera mensajes INFORM con conversationId="grafo-scoring" desde AgentConstructor.
+ * Por cada grafo recibido:
+ *   1. Lo vuelca a un archivo temporal.
+ *   2. Invoca el script Python de inferencia GNN, pasándole también el threshold.
+ *   3. Procesa la salida y notifica a AgentUI con cada cuenta de alto riesgo.
+ *
+ * Formato grafo recibido (una transacción por línea):
+ *   TX_ID;SENDER;RECEIVER;TX_TYPE;TX_AMOUNT;TIMESTAMP
+ *
+ * Formato salida Python (una cuenta alertada por línea):
+ *   account_id;score
+ * O bien "NONE" si no hay alertas; "ERROR: ..." si algo falla.
+ *
+ * Formato mensaje enviado a AgentUI:
+ *   fan-in;account_id;score
+ */
 public class CalcularScoringBehaviour extends CyclicBehaviour {
 
     private static final MessageTemplate TEMPLATE = MessageTemplate.and(
@@ -38,7 +60,7 @@ public class CalcularScoringBehaviour extends CyclicBehaviour {
         String grafoContent = msg.getContent();
         if (grafoContent == null || grafoContent.isBlank()) return;
 
-        System.out.println("[CalcularScoringBehaviour] Grafo recibido, analizando fan-in...");
+        System.out.println("[CalcularScoringBehaviour] Grafo recibido, ejecutando inferencia GNN...");
 
         // 1. Volcar grafo a archivo temporal
         try {
@@ -48,22 +70,32 @@ public class CalcularScoringBehaviour extends CyclicBehaviour {
             return;
         }
 
-        System.out.println("[CalcularScoringBehaviour] Directorio de trabajo: " + System.getProperty("user.dir"));
-        System.out.println("[CalcularScoringBehaviour] Script: " + AgentScoring.SCORE_SCRIPT);
-        System.out.println("[CalcularScoringBehaviour] Grafo tmp: " + AgentScoring.GRAPH_TMP_FILE);
+        // 2. Invocar Python pasando el threshold como argumento
+        String resultado = callPython(AgentScoring.GRAPH_TMP_FILE, AgentScoring.RISK_THRESHOLD);
 
-        // 2. Llamar a Python
-        String resultado = callPython(AgentScoring.GRAPH_TMP_FILE);
+        if (resultado == null) {
+            System.err.println("[CalcularScoringBehaviour] Sin respuesta del script Python.");
+            return;
+        }
 
-        System.out.println("[CalcularScoringBehaviour] Python output: '" + resultado + "'");
+        if (resultado.equals("NONE")) {
+            System.out.println("[CalcularScoringBehaviour] Sin cuentas fan-in de alto riesgo.");
+            return;
+        }
 
-        if (resultado == null || resultado.equals("NONE") || resultado.startsWith("ERROR")) {
-            System.out.println("[CalcularScoringBehaviour] Sin nodos fan-in de alto riesgo.");
+        if (resultado.startsWith("ERROR")) {
+            System.err.println("[CalcularScoringBehaviour] Error en script Python: " + resultado);
             return;
         }
 
         // 3. Procesar resultados y notificar UI
+        procesarResultados(resultado);
+    }
+
+    private void procesarResultados(String resultado) {
         AID uiAID = findAgent("interfaz-usuario");
+        int alertas = 0;
+
         for (String linea : resultado.split("\n")) {
             linea = linea.trim();
             if (linea.isEmpty()) continue;
@@ -71,11 +103,12 @@ public class CalcularScoringBehaviour extends CyclicBehaviour {
             String[] parts = linea.split(";");
             if (parts.length < 2) continue;
 
-            String receiver = parts[0];
-            String score    = parts[1];
+            String receiver = parts[0].trim();
+            String score    = parts[1].trim();
 
-            System.out.printf("[CalcularScoringBehaviour] ⚠ Fan-in ALTO RIESGO: cuenta=%s  score=%s%n",
+            System.out.printf("[CalcularScoringBehaviour] ⚠ Fan-in detectado: cuenta=%s  score=%s%n",
                     receiver, score);
+            alertas++;
 
             if (uiAID != null) {
                 ACLMessage alert = new ACLMessage(ACLMessage.INFORM);
@@ -85,14 +118,23 @@ public class CalcularScoringBehaviour extends CyclicBehaviour {
                 myAgent.send(alert);
             }
         }
+
+        if (uiAID == null && alertas > 0) {
+            System.err.println("[CalcularScoringBehaviour] AgentUI no encontrado en el DF — "
+                    + alertas + " alertas no entregadas.");
+        } else if (alertas > 0) {
+            System.out.println("[CalcularScoringBehaviour] " + alertas
+                    + " alertas fan-in enviadas a AgentUI.");
+        }
     }
 
-    private String callPython(String graphFile) {
+    private String callPython(String graphFile, double threshold) {
         try {
             ProcessBuilder pb = new ProcessBuilder(
                     AgentScoring.PYTHON_CMD,
                     AgentScoring.SCORE_SCRIPT,
-                    graphFile
+                    graphFile,
+                    String.valueOf(threshold)
             );
             pb.directory(new File(System.getProperty("user.dir")));
             pb.redirectErrorStream(true);
@@ -107,10 +149,12 @@ public class CalcularScoringBehaviour extends CyclicBehaviour {
                 }
             }
 
-            boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+            boolean finished = process.waitFor(AgentScoring.PYTHON_TIMEOUT_SEC, TimeUnit.SECONDS);
             if (!finished) {
                 process.destroy();
-                System.err.println("[CalcularScoringBehaviour] Python timeout - proceso terminado");
+                System.err.println("[CalcularScoringBehaviour] Python timeout ("
+                        + AgentScoring.PYTHON_TIMEOUT_SEC + "s) - proceso terminado");
+                return null;
             }
 
             return sb.toString().trim();
@@ -130,7 +174,8 @@ public class CalcularScoringBehaviour extends CyclicBehaviour {
             DFAgentDescription[] results = DFService.search(myAgent, template);
             if (results != null && results.length > 0) return results[0].getName();
         } catch (FIPAException e) {
-            System.err.println("[CalcularScoringBehaviour] DF error: " + e.getMessage());
+            System.err.println("[CalcularScoringBehaviour] DF error buscando "
+                    + serviceType + ": " + e.getMessage());
         }
         return null;
     }

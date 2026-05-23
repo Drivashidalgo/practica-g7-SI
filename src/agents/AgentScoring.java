@@ -8,33 +8,46 @@ import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.domain.FIPAException;
 
 /**
- * AgentScoring — detecta fraude tipo fan-in usando ML sobre el grafo.
+ * AgentScoring — detecta fraude tipo fan-in usando una red neuronal de grafos (GNN).
  *
- * Recibe el grafo acumulado de AgentConstructor (conversationId="grafo-scoring"),
- * llama al script Python score_fanin.py que extrae features estructurales
- * del grafo y aplica el modelo entrenado, y notifica a AgentUI con
- * las cuentas de alto riesgo (conversationId="alerta-fraude").
+ * Flujo:
+ *   1. Recibe el grafo acumulado de AgentConstructor (conversationId="grafo-scoring").
+ *   2. Vuelca el grafo a un archivo temporal.
+ *   3. Invoca el script Python score_fanin_gnn.py, que:
+ *        - Carga model_fanin.pt (modelo GNN entrenado offline).
+ *        - Aplica inferencia sobre el grafo recibido.
+ *        - Devuelve por stdout las cuentas con probabilidad >= RISK_THRESHOLD.
+ *   4. Notifica a AgentUI con cada cuenta de alto riesgo (conversationId="alerta-fraude").
  *
- * AgentAnalyst se encarga de los ciclos (Tarjan).
- * Este agente se encarga del fan-in (ML).
+ * Reparto de responsabilidades con AgentAnalyst:
+ *   - AgentAnalyst → ciclos (Tarjan, búsqueda exacta).
+ *   - AgentScoring → fan-in (GNN, clasificación probabilística).
  */
 public class AgentScoring extends Agent {
 
-    /** Umbral de probabilidad para considerar fan-in fraudulento (0.0-1.0). */
-    public static final double RISK_THRESHOLD = 0.7;
+    /**
+     * Probabilidad mínima para alertar de una cuenta como fan-in.
+     * Calibrado con evaluate_streaming.py sobre datos no vistos:
+     * a 0.5 da precision 0.81 y recall 0.47.
+     * Variar este valor entre 0.2 y 0.7 cambia las métricas marginalmente
+     * (el modelo produce probabilidades polarizadas, sin zona gris útil).
+     */
+    public static final double RISK_THRESHOLD = 0.5;
 
     /**
-     * Comando Python. Ajusta si no está en el PATH.
-     * Windows: "python" o "py"
-     * Linux/Mac: "python3"
+     * Intérprete Python en el PATH.
+     * Windows: "python" o "py".  Linux/Mac: "python3".
      */
-    public static final String PYTHON_CMD = "python";
+    public static final String PYTHON_CMD = "C:\\Users\\jlope\\anaconda3\\envs\\tensorflow\\python.exe";
 
-    /** Script de scoring relativo a la raíz del proyecto. */
-    public static final String SCORE_SCRIPT = "data/score_fanin.py";
+    /** Script de inferencia (ruta relativa a la raíz del proyecto). */
+    public static final String SCORE_SCRIPT = "data/score_fanin_gnn.py";
 
     /** Archivo temporal donde se vuelca el grafo para pasárselo a Python. */
     public static final String GRAPH_TMP_FILE = "data/grafo_tmp.txt";
+
+    /** Timeout máximo de la inferencia Python (segundos). */
+    public static final int PYTHON_TIMEOUT_SEC = 30;
 
     @Override
     protected void setup() {
@@ -56,13 +69,13 @@ public class AgentScoring extends Agent {
         dfd.setName(getAID());
 
         ServiceDescription sd = new ServiceDescription();
-        sd.setName("scoring-fraude");
+        sd.setName("scoring-fanin-gnn");
         sd.setType("scoring-fraude");
         dfd.addServices(sd);
 
         try {
             DFService.register(this, dfd);
-            System.out.println("[AgentScoring] Registrado en el DF.");
+            System.out.println("[AgentScoring] Registrado en el DF (tipo: scoring-fraude).");
         } catch (FIPAException e) {
             System.err.println("[AgentScoring] Error al registrar en el DF: " + e.getMessage());
         }
