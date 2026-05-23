@@ -1,6 +1,7 @@
 package agents;
 
 import jade.core.Agent;
+import jade.core.AID;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.domain.DFService;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
@@ -15,7 +16,7 @@ import org.jgrapht.alg.cycle.TarjanSimpleCycles;
 import org.jgrapht.graph.DefaultDirectedGraph;
 import org.jgrapht.graph.DefaultEdge;
 
-// Importaciones extra para la memoria de importes
+// Importaciones de utilidades de Java
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
@@ -48,7 +49,21 @@ public class AgentAnalyst extends Agent {
             fe.printStackTrace();
         }
     }
-
+    private AID buscarUIenDF() {
+        DFAgentDescription template = new DFAgentDescription();
+        ServiceDescription sd = new ServiceDescription();
+        sd.setType("interfaz-visualizacion");
+        template.addServices(sd);
+        try {
+            DFAgentDescription[] resultados = DFService.search(this, template);
+            if (resultados != null && resultados.length > 0) {
+                return resultados[0].getName();
+            }
+        } catch (FIPAException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
     // Comportamiento cíclico que bloquea al agente hasta que llega el grafo cada 30 seg
     private class ReceptorGrafoBehaviour extends CyclicBehaviour {
 
@@ -137,6 +152,13 @@ public class AgentAnalyst extends Agent {
 
     // Método para enviar CADA ciclo detectado al Agente de Interfaz con importes y direcciones
     private void enviarAlertasUI(List<List<String>> ciclos, Map<String, String> mapaImportes) {
+        // Buscamos el UI una sola vez antes del bucle
+        AID uiAID = buscarUIenDF();
+        if (uiAID == null) {
+            System.err.println("[AgentAnalyst] AgentUI no encontrado en el DF. Alertas no enviadas.");
+            return;
+        }
+
         for (List<String> ciclo : ciclos) {
 
             // 1. Preparamos la lista para construir el texto "A->B:5000; B->C:4000..."
@@ -145,29 +167,22 @@ public class AgentAnalyst extends Agent {
             // 2. Recorremos el ciclo para enlazar cada cuenta con la siguiente
             for (int i = 0; i < ciclo.size(); i++) {
                 String origen = ciclo.get(i);
-                // El destino es el siguiente nodo. Si estamos en el último, el destino es el primero (cerrando el ciclo).
                 String destino = ciclo.get((i + 1) % ciclo.size());
 
-                // Reconstruimos la clave para buscar el importe en nuestra memoria
                 String claveArista = origen + "->" + destino;
                 String importe = mapaImportes.getOrDefault(claveArista, "0");
 
-                // Añadimos el bloque formateado: "CUENTA_A->CUENTA_B:5000.0"
                 aristasFormateadas.add(origen + "->" + destino + ":" + importe);
             }
 
-            // 3. Creamos un nuevo mensaje para ESTE ciclo
+            // 3. Creamos el mensaje para ESTE ciclo
             ACLMessage alerta = new ACLMessage(ACLMessage.INFORM);
-            alerta.addReceiver(new jade.core.AID("AgentUI", jade.core.AID.ISLOCALNAME));
+            alerta.addReceiver(uiAID);
             alerta.setConversationId("alerta-fraude");
-
-            // 4. Juntamos todas las aristas separadas por punto y coma (;)
             alerta.setContent(String.join(";", aristasFormateadas));
-
-            // 5. Enviamos este mensaje ahora
             send(alerta);
         }
-        System.out.println("✉️ Se han enviado " + ciclos.size() + " mensajes avanzados al f con importes y direcciones.");
+        System.out.println("✉️ Se han enviado " + ciclos.size() + " mensajes al AgentUI con importes y direcciones.");
     }
 
     @Override
