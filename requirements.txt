@@ -1,0 +1,11 @@
+# Dependencias para score_fanin_gnn.py
+# Instalación: pip install -r requirements.txt
+#
+# NOTA: torch-geometric requiere que torch esté instalado primero.
+# Si usas CPU:      pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Si usas CUDA:     pip install torch --index-url https://download.pytorch.org/whl/cu121
+ 
+torch>=2.2.0
+torch-geometric>=2.5.0
+pandas>=2.2.0
+scikit-learn>=1.4.0
