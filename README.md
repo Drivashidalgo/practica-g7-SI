@@ -145,41 +145,18 @@ Copia los cinco archivos en `lib/` antes de compilar.
 4. `Apply → OK`
 
 ### Dependencias Python (`requirements.txt`)
-
 Solo necesarias para el agente `AgentScoring` (inferencia GNN).
 
-```
-# requirements.txt
-torch>=2.2.0
-torch-geometric>=2.5.0
-pandas>=2.2.0
-scikit-learn>=1.4.0
-```
-
-#### Instalación con pip (CPU)
-
+#### Instalación con Anaconda (obligatorio)
 ```bash
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt
-```
-
-#### Instalación con pip (GPU / CUDA 12.1)
-
-```bash
-pip install torch --index-url https://download.pytorch.org/whl/cu121
-pip install -r requirements.txt
-```
-
-#### Instalación con Anaconda (recomendado)
-
-```bash
-conda create -n sist_inteligentes python=3.9
+conda create -n sist_inteligentes python=3.10
 conda activate sist_inteligentes
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt
+pip install torch>=2.2.0 --index-url https://download.pytorch.org/whl/cpu
+pip install torch-geometric>=2.5.0
+pip install pandas>=2.2.0
+pip install scikit-learn>=1.4.0
 ```
-
-> Después de instalar, copia la ruta del intérprete Python (`which python` / `where python`) y actualiza la constante `PYTHON_CMD` en `src/agents/AgentScoring.java`.
+> ⚠️ **Una vez creado el entorno, copia la ruta del intérprete Python (`which python` en Mac/Linux o `where python` en Windows) y pégala en la línea **41** del archivo.**
 
 ---
 
@@ -200,10 +177,8 @@ Crea una configuración de ejecución en IntelliJ:
 - **Program arguments:**
 
 ```
--gui percepcion:agents.AgentPerception constructor:agents.AgentConstructor analista:agents.AgentAnalyst scoring:agents.AgentScoring ui:agents.AgentUI
+-gui percepcion:agents.AgentPerception;constructor:agents.AgentConstructor;analista:agents.AgentAnalyst;scoring:agents.AgentScoring;ui:agents.AgentUI
 ```
-
-> Si no necesitas el módulo de scoring (GNN), omite `scoring:agents.AgentScoring`.
 
 > **Importante:** el agente constructor debe llamarse exactamente `constructor` (minúscula), porque `AgentPerception` tiene ese nombre hardcodeado como destino ACL.
 
