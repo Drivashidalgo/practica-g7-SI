@@ -10,7 +10,7 @@ import jade.core.Agent;
 
 public class AgentConstructor extends Agent {
 
-    public static final int    EDGE_THRESHOLD = 10;
+    public static final int    EDGE_THRESHOLD = 1000;
     public static final long   COOLDOWN_MS    = 0L;
 
     @Override

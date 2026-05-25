@@ -4,6 +4,7 @@ import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
+import models.AlertaFanIn;
 import models.CicloFraude;
 import ui.MonitorFrame;
 
@@ -11,8 +12,12 @@ import javax.swing.SwingUtilities;
 
 /**
  * Escucha en bucle el buzón del AgentUI:
- *   - "alerta-fraude" (del AgentAnalyst): un ciclo por mensaje.
- *   - "estado-stream" (del AgentPerception): "INICIO" | "FIN".
+ *   - "alerta-fraude" (AgentAnalyst): ciclos de blanqueo (Tarjan).
+ *   - "alerta-fraude" (AgentScoring): cuentas fan-in (GNN) — prefijo "fan-in;".
+ *   - "estado-stream" (AgentPerception): "INICIO" | "FIN".
+ *
+ * Ambos remitentes usan el mismo conversationId. Distinguimos por el prefijo
+ * del contenido: si empieza por "fan-in;" es del Scoring, si no es un ciclo.
  *
  * Filtra con MessageTemplate (performativa INFORM + uno de los dos ConversationId).
  * Toda mutación de la UI se delega al EDT con SwingUtilities.invokeLater.
@@ -71,12 +76,23 @@ public class MostrarResultadosBehaviour extends CyclicBehaviour {
     }
 
     private void manejarAlerta(String content) {
+        if (content == null) return;
+        // El AgentScoring marca sus mensajes con el prefijo "fan-in;".
+        // Cualquier otra cosa la tratamos como un ciclo del AgentAnalyst.
+        if (content.trim().toLowerCase().startsWith("fan-in;")) {
+            manejarFanIn(content);
+        } else {
+            manejarCiclo(content);
+        }
+    }
+
+    private void manejarCiclo(String content) {
         int numero = contadorCiclos + 1;
         CicloFraude ciclo;
         try {
             ciclo = CicloFraude.parse(content, numero);
         } catch (RuntimeException e) {
-            System.err.println("[AgentUI] Alerta descartada (formato inválido): "
+            System.err.println("[AgentUI] Ciclo descartado (formato inválido): "
                     + e.getMessage() + " | contenido='" + content + "'");
             return;
         }
@@ -84,5 +100,19 @@ public class MostrarResultadosBehaviour extends CyclicBehaviour {
         System.out.println("[AgentUI] Ciclo #" + numero + " recibido: "
                 + ciclo.getCuentas() + " total=" + ciclo.getTotal());
         SwingUtilities.invokeLater(() -> frame.addAlerta(ciclo));
+    }
+
+    private void manejarFanIn(String content) {
+        AlertaFanIn alerta;
+        try {
+            alerta = AlertaFanIn.parse(content);
+        } catch (RuntimeException e) {
+            System.err.println("[AgentUI] Fan-in descartado (formato inválido): "
+                    + e.getMessage() + " | contenido='" + content + "'");
+            return;
+        }
+        System.out.println("[AgentUI] Fan-in: cuenta=" + alerta.getCuenta()
+                + " score=" + alerta.getScore());
+        SwingUtilities.invokeLater(() -> frame.addFanIn(alerta));
     }
 }
