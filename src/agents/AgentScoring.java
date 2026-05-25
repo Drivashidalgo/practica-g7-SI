@@ -32,13 +32,13 @@ public class AgentScoring extends Agent {
      * Variar este valor entre 0.2 y 0.7 cambia las métricas marginalmente
      * (el modelo produce probabilidades polarizadas, sin zona gris útil).
      */
-    public static final double RISK_THRESHOLD = 0.99;
+    public static final double RISK_THRESHOLD = 0.999;
 
     /**
      * Intérprete Python en el PATH.
      * Windows: "python" o "py".  Linux/Mac: "python3".
      */
-    public static final String PYTHON_CMD = "C:\\Users\\mateo\\anaconda3\\envs\\sist_inteligentes\\python.exe";
+    public static final String PYTHON_CMD = "venv_si\\Scripts\\python.exe";
 
     /** Script de inferencia (ruta relativa a la raíz del proyecto). */
     public static final String SCORE_SCRIPT = "data/score_fanin_gnn.py";

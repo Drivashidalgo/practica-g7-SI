@@ -10,6 +10,7 @@ out/
 data/transactions_live.csv
 APDescription.txt
 MTPs-*.txt
+venv_si/
 
 ### Eclipse ###
 .apt_generated

@@ -40,7 +40,7 @@ public class AgentPerception extends Agent {
      * para considerar que el stream ha terminado. Con intervalo de 1 s, son
      * 5 s de inactividad.
      */
-    private static final int INACTIVIDAD_TICKS = 5;
+    private static final int INACTIVIDAD_TICKS = 60;
 
     /** Tipo de servicio bajo el que AgentUI se registra en el DF. */
     private static final String UI_SERVICE_TYPE = "interfaz-visualizacion";

@@ -16,33 +16,18 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Behaviour principal de AgentScoring.
- *
- * Espera mensajes INFORM con conversationId="grafo-scoring" desde AgentConstructor.
- * Por cada grafo recibido:
- *   1. Lo vuelca a un archivo temporal.
- *   2. Invoca el script Python de inferencia GNN, pasándole también el threshold.
- *   3. Procesa la salida y notifica a AgentUI con cada cuenta de alto riesgo.
- *
- * Formato grafo recibido (una transacción por línea):
- *   TX_ID;SENDER;RECEIVER;TX_TYPE;TX_AMOUNT;TIMESTAMP
- *
- * Formato salida Python (una cuenta alertada por línea):
- *   account_id;score
- * O bien "NONE" si no hay alertas; "ERROR: ..." si algo falla.
- *
- * Formato mensaje enviado a AgentUI:
- *   fan-in;account_id;score
- */
 public class CalcularScoringBehaviour extends CyclicBehaviour {
 
     private static final MessageTemplate TEMPLATE = MessageTemplate.and(
             MessageTemplate.MatchPerformative(ACLMessage.INFORM),
             MessageTemplate.MatchConversationId("grafo-scoring")
     );
+
+    private final Set<String> cuentasYaEmitidas = new HashSet<>();
 
     public CalcularScoringBehaviour(AgentScoring agent) {
         super(agent);
@@ -62,7 +47,6 @@ public class CalcularScoringBehaviour extends CyclicBehaviour {
 
         System.out.println("[CalcularScoringBehaviour] Grafo recibido, ejecutando inferencia GNN...");
 
-        // 1. Volcar grafo a archivo temporal
         try {
             Files.writeString(Paths.get(AgentScoring.GRAPH_TMP_FILE), grafoContent);
         } catch (IOException e) {
@@ -70,7 +54,6 @@ public class CalcularScoringBehaviour extends CyclicBehaviour {
             return;
         }
 
-        // 2. Invocar Python pasando el threshold como argumento
         String resultado = callPython(AgentScoring.GRAPH_TMP_FILE, AgentScoring.RISK_THRESHOLD);
 
         if (resultado == null) {
@@ -88,13 +71,13 @@ public class CalcularScoringBehaviour extends CyclicBehaviour {
             return;
         }
 
-        // 3. Procesar resultados y notificar UI
         procesarResultados(resultado);
     }
 
     private void procesarResultados(String resultado) {
         AID uiAID = findAgent("interfaz-visualizacion");
         int alertas = 0;
+        int duplicados = 0;
 
         for (String linea : resultado.split("\n")) {
             linea = linea.trim();
@@ -105,6 +88,11 @@ public class CalcularScoringBehaviour extends CyclicBehaviour {
 
             String receiver = parts[0].trim();
             String score    = parts[1].trim();
+
+            if (!cuentasYaEmitidas.add(receiver)) {
+                duplicados++;
+                continue;
+            }
 
             System.out.printf("[CalcularScoringBehaviour] ⚠ Fan-in detectado: cuenta=%s  score=%s%n",
                     receiver, score);
@@ -122,9 +110,10 @@ public class CalcularScoringBehaviour extends CyclicBehaviour {
         if (uiAID == null && alertas > 0) {
             System.err.println("[CalcularScoringBehaviour] AgentUI no encontrado en el DF — "
                     + alertas + " alertas no entregadas.");
-        } else if (alertas > 0) {
+        } else if (alertas > 0 || duplicados > 0) {
             System.out.println("[CalcularScoringBehaviour] " + alertas
-                    + " alertas fan-in enviadas a AgentUI.");
+                    + " alertas fan-in nuevas enviadas a AgentUI ("
+                    + duplicados + " duplicadas omitidas).");
         }
     }
 
