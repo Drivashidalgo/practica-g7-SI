@@ -1,6 +1,8 @@
 # Práctica G7 – Sistemas Inteligentes: Detección de Fraude Bancario
 
-Sistema multiagente implementado con JADE para la detección de patrones fraudulentos en flujos de transacciones bancarias en tiempo real. El sistema identifica dos tipos de fraude: **ciclos de blanqueo de capitales** (mediante el algoritmo de Tarjan sobre un grafo dirigido) y **cuentas fan-in de alto riesgo** (mediante una red neuronal de grafos).
+> **Repositorio GitHub:** [https://github.com/Drivashidalgo/practica-g7-SI](https://github.com/Drivashidalgo/practica-g7-SI)
+
+Sistema multiagente implementado con JADE para la detección de patrones fraudulentos en flujos de transacciones bancarias en tiempo real. El sistema identifica dos tipos de fraude: **ciclos de blanqueo de capitales** (mediante el algoritmo de Tarjan sobre un grafo dirigido) y **cuentas fan-in de alto riesgo** (mediante una red neuronal de grafos, GNN).
 
 ---
 
@@ -16,77 +18,98 @@ Sistema multiagente implementado con JADE para la detección de patrones fraudul
 
 ## Arquitectura del sistema
 
+El sistema sigue una arquitectura de pipeline multiagente con dos ramas de análisis paralelas. El flujo de datos va desde el simulador hasta la interfaz gráfica pasando por cinco agentes JADE con responsabilidades bien delimitadas.
+
 ```
-                    ┌─────────────────────────┐
-                    │  SimuladorTransacciones  │
-                    │  (proceso independiente) │
-                    │  Lee transactions.csv    │
-                    │  1 línea cada 10 ms      │
-                    └───────────┬─────────────┘
-                                │ escribe línea a línea
-                                ▼
-                   data/transactions_live.csv
-                                │
-                                ▼
-               ┌────────────────────────────┐
-               │       AgentPerception      │
-               │  Ticker cada 1 s           │
-               │  Lee líneas nuevas del CSV │
-               └──────────────┬─────────────┘
-                              │ ACL INFORM
-                              │ conversationId="transaccion-bancaria"
-                              │ TX_ID;SENDER;RECEIVER;TYPE;AMOUNT;TIMESTAMP
-                              ▼
-               ┌────────────────────────────┐
-               │      AgentConstructor      │
-               │  Construye grafo dirigido  │
-               │  con JGraphT               │
-               │  Cada EDGE_THRESHOLD=10    │
-               │  aristas nuevas notifica   │
-               └──────────┬─────────────────┘
-              ┌───────────┴──────────────┐
-              │ ACL INFORM               │ ACL INFORM
-              │ conversationId=          │ conversationId=
-              │ "grafo-listo"            │ "grafo-scoring"
-              ▼                          ▼
-┌─────────────────────┐    ┌──────────────────────────┐
-│    AgentAnalyst     │    │      AgentScoring         │
-│  Algoritmo Tarjan   │    │  Red neuronal de grafos   │
-│  Detecta ciclos de  │    │  (GNN, score_fanin_gnn.py)│
-│  blanqueo           │    │  Detecta cuentas fan-in   │
-└──────────┬──────────┘    └────────────┬──────────────┘
-           │ ACL INFORM                 │ ACL INFORM
-           │ conversationId=            │ conversationId=
-           │ "alerta-fraude"            │ "alerta-fraude"
-           └───────────────┬────────────┘
-                           ▼
-            ┌──────────────────────────┐
-            │         AgentUI          │
-            │  Monitor Swing dark-mode │
-            │  Muestra ciclos y        │
-            │  cuentas sospechosas     │
-            └──────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                         CAPA DE DATOS                                    │
+│                                                                          │
+│   data/transactions.csv  ──►  SimuladorTransacciones  ──►               │
+│   (≈100 k transacciones)       (proceso separado,           │           │
+│                                 50 ms / línea)               │           │
+│                                                              ▼           │
+│                                               data/transactions_live.csv │
+└──────────────────────────────────────────────────────────────────────────┘
+                                                              │
+                                                              ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                    CAPA DE PERCEPCIÓN  (JADE)                            │
+│                                                                          │
+│              ┌────────────────────────────────────┐                     │
+│              │           AgentPerception           │                     │
+│              │  Ticker cada 1 s                    │                     │
+│              │  Lee líneas nuevas del CSV live     │                     │
+│              │  Emite INICIO / FIN al AgentUI      │                     │
+│              └──────────────────┬──────────────────┘                    │
+│                                 │ ACL INFORM                             │
+│                                 │ conversationId = "transaccion-bancaria"│
+│                                 │ TX_ID;SENDER;RECEIVER;TYPE;AMOUNT;TS   │
+└─────────────────────────────────┼────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                 CAPA DE CONSTRUCCIÓN DEL GRAFO  (JADE)                   │
+│                                                                          │
+│              ┌────────────────────────────────────┐                     │
+│              │          AgentConstructor           │                     │
+│              │  Grafo dirigido acumulado (JGraphT) │                     │
+│              │  Notifica cada EDGE_THRESHOLD=1000  │                     │
+│              │  aristas nuevas                     │                     │
+│              └─────────────┬──────────────┬────────┘                    │
+│                            │              │                              │
+│          ACL INFORM        │              │  ACL INFORM                  │
+│          conversationId=   │              │  conversationId=             │
+│          "grafo-listo"     │              │  "grafo-scoring"             │
+└────────────────────────────┼──────────────┼──────────────────────────────┘
+                             │              │
+              ┌──────────────┘              └──────────────┐
+              ▼                                            ▼
+┌──────────────────────────┐            ┌──────────────────────────────────┐
+│  ANÁLISIS DETERMINISTA   │            │    ANÁLISIS PROBABILÍSTICO       │
+│                          │            │                                  │
+│      AgentAnalyst        │            │          AgentScoring            │
+│  Algoritmo de Tarjan     │            │  GNN (score_fanin_gnn.py)        │
+│  Ciclos ≥ 3 nodos        │            │  GraphSAGE 3 capas, 64 neuronas  │
+│  Importes uniformes      │            │  Umbral: score ≥ 0.99            │
+│  Firma canónica (dedup)  │            │  Subproceso Python, timeout 30 s │
+└──────────┬───────────────┘            └──────────────────┬───────────────┘
+           │ ACL INFORM                                    │ ACL INFORM
+           │ conversationId = "alerta-fraude"              │ conversationId = "alerta-fraude"
+           │ SENDER→RECEIVER:AMOUNT;...                    │ fan-in;ACCOUNT_ID;SCORE
+           └───────────────────────┬───────────────────────┘
+                                   ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                      CAPA DE PRESENTACIÓN  (JADE)                        │
+│                                                                          │
+│              ┌────────────────────────────────────┐                     │
+│              │             AgentUI                 │                     │
+│              │  Dashboard Swing dark-mode          │                     │
+│              │  Pestaña "Ciclos"  │  Pestaña "Fan-In"                   │
+│              │  Tarjeta por alerta + mini-grafo    │                     │
+│              └────────────────────────────────────┘                     │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Agentes y responsabilidades
 
 | Agente | Tipo de servicio DF | Rol |
 |---|---|---|
-| `AgentPerception` | — | Percepción: lee el CSV en tiempo real y distribuye transacciones |
-| `AgentConstructor` | `construccion-grafo` | Construcción del grafo dirigido acumulado con JGraphT |
-| `AgentAnalyst` | `analisis-fraude` | Análisis: detecta ciclos con Tarjan y alerta a la UI |
-| `AgentScoring` | `scoring-fraude` | Scoring: clasifica cuentas fan-in con una GNN en Python |
-| `AgentUI` | `interfaz-visualizacion` | Interfaz: muestra alertas en tiempo real con Swing |
+| `AgentPerception` | — | Percepción: lee el CSV live con ticker de 1 s y distribuye transacciones |
+| `AgentConstructor` | `construccion-grafo` | Construye el grafo dirigido acumulado con JGraphT; notifica a los analizadores |
+| `AgentAnalyst` | `analisis-fraude` | Detecta ciclos de blanqueo con Tarjan; filtra y deduplica por firma canónica |
+| `AgentScoring` | `scoring-fraude` | Clasifica cuentas fan-in mediante GNN (subproceso Python + PyTorch Geometric) |
+| `AgentUI` | `interfaz-visualizacion` | Muestra alertas de ambos detectores en tiempo real (Swing, tema dark) |
 
 ### Contratos de mensajes ACL
 
 | Emisor | Receptor | `conversationId` | Contenido |
 |---|---|---|---|
-| AgentPerception | AgentConstructor | `transaccion-bancaria` | `TX_ID;SENDER;RECEIVER;TYPE;AMOUNT;TIMESTAMP` |
-| AgentConstructor | AgentAnalyst | `grafo-listo` | Todas las transacciones acumuladas, una por línea |
-| AgentConstructor | AgentScoring | `grafo-scoring` | Ídem |
-| AgentAnalyst | AgentUI | `alerta-fraude` | `SENDER->RECEIVER:AMOUNT;...` (cadena del ciclo) |
-| AgentScoring | AgentUI | `alerta-fraude` | `fan-in;ACCOUNT_ID;SCORE` |
+| `AgentPerception` | `AgentUI` | `estado-stream` | `INICIO` o `FIN` |
+| `AgentPerception` | `AgentConstructor` | `transaccion-bancaria` | `TX_ID;SENDER;RECEIVER;TYPE;AMOUNT;TIMESTAMP` |
+| `AgentConstructor` | `AgentAnalyst` | `grafo-listo` | Todas las transacciones acumuladas, una por línea |
+| `AgentConstructor` | `AgentScoring` | `grafo-scoring` | Ídem |
+| `AgentAnalyst` | `AgentUI` | `alerta-fraude` | `SENDER->RECEIVER:AMOUNT;...` (cadena del ciclo) |
+| `AgentScoring` | `AgentUI` | `alerta-fraude` | `fan-in;ACCOUNT_ID;SCORE` |
 
 ---
 
@@ -94,39 +117,69 @@ Sistema multiagente implementado con JADE para la detección de patrones fraudul
 
 ### Requisitos previos
 
-- **Java 17+** (probado con Java 26 en IntelliJ IDEA)
-- **Python 3.8+** con PyTorch y PyTorch Geometric (solo para AgentScoring / GNN)
-- **IntelliJ IDEA** (recomendado) o cualquier IDE compatible con proyectos Java sin Maven
-
-### JARs necesarios
-
-El proyecto usa JARs locales en la carpeta `lib/`. No requiere Maven ni Gradle.
-
-| Librería | Versión | Descarga |
+| Requisito | Versión mínima | Notas |
 |---|---|---|
-| JADE | 4.6.0 | https://jade.tilab.com/download/jade/license/jade-all-4-6-0.zip |
-| JGraphT core | 1.5.2 | https://github.com/jgrapht/jgrapht/releases/download/v1.5.2/jgrapht-1.5.2-libs.zip |
-| commons-codec | 1.3 | Incluido en el ZIP de JADE |
+| Java JDK | 17 | Probado con Java 26 en IntelliJ IDEA |
+| Python | 3.8 | Solo para el módulo GNN (`AgentScoring`) |
+| IntelliJ IDEA | cualquier versión | Recomendado; no se usa Maven ni Gradle |
 
-Del ZIP de JADE extrae: `jade.jar` y `commons-codec-1.3.jar`.  
-Del ZIP de JGraphT extrae: `jgrapht-core-1.5.2.jar`.
+### Dependencias Java — JARs locales (`lib/`)
 
-Copia los tres archivos en la carpeta `lib/` del proyecto.
+El proyecto referencia JARs directamente desde la carpeta `lib/`. No requiere Maven ni Gradle.
 
-### Configurar dependencias en IntelliJ IDEA
+| Librería | Versión | Cómo obtenerla |
+|---|---|---|
+| **JADE** | 4.6.0 | Descarga [jade-all-4-6-0.zip](https://jade.tilab.com/download/jade/license/jade-all-4-6-0.zip) → extrae `jade.jar` |
+| **JGraphT core** | 1.5.3 | Descarga [jgrapht-1.5.3-libs.zip](https://github.com/jgrapht/jgrapht/releases/download/v1.5.3/jgrapht-1.5.3-libs.zip) → extrae `jgrapht-core-1.5.3.jar` |
+| **JGraphT I/O** | 1.5.3 | Mismo ZIP de JGraphT → extrae `jgrapht-io-1.5.3.jar` |
+| **JHeaps** | 0.14 | Dependencia transitiva de JGraphT; incluida en el ZIP |
+| **commons-codec** | 1.3 | Incluida en el ZIP de JADE |
+
+Copia los cinco archivos en `lib/` antes de compilar.
+
+#### Configurar JARs en IntelliJ IDEA
 
 1. `File → Project Structure` (`Ctrl+Alt+Shift+S`)
 2. `Modules → Dependencies → +` → `JARs or Directories`
-3. Selecciona los 3 JARs de `lib/`. Comprueba que el scope es **Compile**.
+3. Selecciona todos los JARs de `lib/`. Comprueba que el scope es **Compile**.
 4. `Apply → OK`
 
-### Dependencias Python (solo AgentScoring)
+### Dependencias Python (`requirements.txt`)
 
-```bash
-pip install torch torch-geometric numpy pandas
+Solo necesarias para el agente `AgentScoring` (inferencia GNN).
+
+```
+# requirements.txt
+torch>=2.2.0
+torch-geometric>=2.5.0
+pandas>=2.2.0
+scikit-learn>=1.4.0
 ```
 
-> Si usas Anaconda, activa el entorno adecuado antes de lanzar JADE. La ruta al intérprete se configura en `AgentScoring.java` con la constante `PYTHON_CMD`.
+#### Instalación con pip (CPU)
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt
+```
+
+#### Instalación con pip (GPU / CUDA 12.1)
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+pip install -r requirements.txt
+```
+
+#### Instalación con Anaconda (recomendado)
+
+```bash
+conda create -n sist_inteligentes python=3.9
+conda activate sist_inteligentes
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt
+```
+
+> Después de instalar, copia la ruta del intérprete Python (`which python` / `where python`) y actualiza la constante `PYTHON_CMD` en `src/agents/AgentScoring.java`.
 
 ---
 
@@ -136,78 +189,131 @@ pip install torch torch-geometric numpy pandas
 
 En IntelliJ: `Build → Build Project` (`Ctrl+F9`).
 
-Asegúrate de que el directorio de salida es `out/` y que los tres JARs están en el classpath.
+Asegúrate de que el directorio de salida es `out/` y de que los cinco JARs están en el classpath (`File → Project Structure → Modules → Dependencies`).
 
 ### 2. Lanzar la plataforma JADE con todos los agentes
 
-`Run → Edit Configurations` → clase principal `jade.Boot`, argumentos de programa:
+Crea una configuración de ejecución en IntelliJ:
+
+- **Main class:** `jade.Boot`
+- **VM options:** `-cp lib/jade.jar;lib/jgrapht-core-1.5.3.jar;lib/jgrapht-io-1.5.3.jar;lib/jheaps-0.14.jar;lib/commons-codec-1.3.jar;out`
+- **Program arguments:**
 
 ```
 -gui percepcion:agents.AgentPerception constructor:agents.AgentConstructor analista:agents.AgentAnalyst scoring:agents.AgentScoring ui:agents.AgentUI
 ```
 
-> Si no necesitas el módulo de scoring (GNN), puedes omitir `scoring:agents.AgentScoring`.
+> Si no necesitas el módulo de scoring (GNN), omite `scoring:agents.AgentScoring`.
 
-> **Importante:** el agente Constructor debe llamarse exactamente `constructor` (minúscula), porque `AgentPerception` tiene ese nombre hardcodeado como destino ACL.
+> **Importante:** el agente constructor debe llamarse exactamente `constructor` (minúscula), porque `AgentPerception` tiene ese nombre hardcodeado como destino ACL.
 
 ### 3. Lanzar el simulador (terminal separada)
+
+En una terminal distinta, con el JADE ya arriba:
 
 ```bash
 # Windows
 java -cp "lib/jade.jar;out" simulator.SimuladorTransacciones
 
-# Linux / Mac
+# Linux / macOS
 java -cp "lib/jade.jar:out" simulator.SimuladorTransacciones
 ```
 
-El simulador leerá `data/transactions.csv` y escribirá una transacción cada 10 ms en `data/transactions_live.csv`. La UI comenzará a recibir alertas en cuanto se acumulen suficientes aristas.
+El simulador leerá `data/transactions.csv` y escribirá una transacción cada 50 ms en `data/transactions_live.csv`. La interfaz recibirá alertas en cuanto se acumulen suficientes aristas (umbral por defecto: 1 000).
 
 ### Parámetros configurables
 
-En `AgentConstructor.java`:
+**`src/agents/AgentConstructor.java`**
 
 | Constante | Valor por defecto | Descripción |
 |---|---|---|
-| `EDGE_THRESHOLD` | `10` | Aristas nuevas necesarias para disparar una notificación a los agentes de análisis |
+| `EDGE_THRESHOLD` | `1000` | Aristas nuevas necesarias para notificar a los agentes de análisis |
 | `COOLDOWN_MS` | `0` | Milisegundos mínimos entre dos notificaciones consecutivas (0 = sin cooldown) |
 
-En `AgentScoring.java`:
+**`src/agents/AgentScoring.java`**
 
 | Constante | Valor por defecto | Descripción |
 |---|---|---|
-| `RISK_THRESHOLD` | `0.5` | Probabilidad mínima de la GNN para generar una alerta fan-in |
+| `RISK_THRESHOLD` | `0.99` | Probabilidad mínima de la GNN para generar una alerta fan-in |
 | `PYTHON_CMD` | ruta local | Ruta al intérprete Python con PyTorch instalado |
 | `SCORE_SCRIPT` | `data/score_fanin_gnn.py` | Script de inferencia GNN |
-| `PYTHON_TIMEOUT_SEC` | `30` | Tiempo máximo de ejecución del script Python |
+| `GRAPH_TMP_FILE` | `data/grafo_tmp.txt` | Fichero temporal para volcado del grafo |
+| `PYTHON_TIMEOUT_SEC` | `30` | Tiempo máximo de ejecución del subproceso Python |
+
+**`src/agents/AgentAnalyst.java`**
+
+| Constante | Valor por defecto | Descripción |
+|---|---|---|
+| `MIN_CICLO_LONGITUD` | `3` | Longitud mínima de ciclo (los de 2 nodos son reversiones normales, no fraude) |
+| `EPSILON_IMPORTE` | `0.01` | Tolerancia para comparar importes en coma flotante |
 
 ---
 
 ## Datos de ejemplo
 
-El archivo `data/transactions.csv` incluido tiene el siguiente formato:
+### Formato de `data/transactions.csv`
+
+El archivo incluido contiene aproximadamente 100 000 transacciones (mezcla de legítimas y fraudulentas):
 
 ```
 TX_ID,SENDER_ACCOUNT_ID,RECEIVER_ACCOUNT_ID,TX_TYPE,TX_AMOUNT,TIMESTAMP,IS_FRAUD,ALERT_ID
 1,6456,9069,TRANSFER,465.05,0,False,-1
 2,7516,9543,TRANSFER,564.64,0,False,-1
+82,6976,9739,TRANSFER,4.85,0,True,193
 664370,4282,5009,TRANSFER,570258.25,101,True,1
 664437,307,4732,TRANSFER,839527.25,101,True,2
+664438,4732,307,TRANSFER,839527.25,101,True,2
 ```
 
-> El simulador omite automáticamente las transacciones con `TIMESTAMP <= 100` para evitar reemitir datos de histórico antiguo.  
+> El simulador omite automáticamente las filas con `TIMESTAMP <= 100` (histórico antiguo).  
 > Las transacciones con `TX_AMOUNT <= 0` son descartadas por `CSVUtils`.
 
-### Cómo se ve una alerta en la UI
-
-Cuando el AgentAnalyst detecta un ciclo, el AgentUI muestra una tarjeta como:
+### Formato de `data/accounts.csv`
 
 ```
-⚠  Ciclo #1                        14:32:07
-4282 → 5009 → 4282
-570.258,25 € en circulación
+ACCOUNT_ID,CUSTOMER_ID,INIT_BALANCE,COUNTRY,ACCOUNT_TYPE,IS_FRAUD,TX_BEHAVIOR_ID
+0,C_0,184.44,US,I,false,1
+1,C_1,175.80,US,I,false,1
+4282,C_4282,12500.00,US,B,true,7
+5009,C_5009,3200.75,US,B,true,7
 ```
 
-Con un mini-grafo dirigido a la derecha que muestra los nodos y los importes en cada arista.
+Usado por el script GNN (`score_fanin_gnn.py`) para obtener el saldo inicial de cada cuenta como feature del nodo.
+
+### Ejemplo de alerta de ciclo en la UI
+
+Cuando `AgentAnalyst` detecta un ciclo de blanqueo, `AgentUI` muestra una tarjeta similar a:
+
+```
+⚠  Ciclo #1                                    14:32:07
+──────────────────────────────────────────────────────
+  4282 → 5009 → 4282
+  570.258,25 € en circulación
+
+  [mini-grafo con nodos y etiquetas de importe en aristas]
+```
+
+### Ejemplo de alerta fan-in en la UI
+
+Cuando `AgentScoring` detecta una cuenta fan-in de alto riesgo:
+
+```
+⚠  Fan-In  ALTA                                14:33:15
+──────────────────────────────────────────────────────
+  Cuenta: 5009
+  Score GNN: 0.9987
+  Severidad: ALTA  (score ≥ 0.99)
+```
+
+### Ejemplo de volcado de grafo temporal (`data/grafo_tmp.txt`)
+
+Generado automáticamente por `AgentScoring` antes de invocar el subproceso Python:
+
+```
+664370;4282;5009;TRANSFER;570258.25;101
+664437;307;4732;TRANSFER;839527.25;101
+664438;4732;307;TRANSFER;839527.25;101
+```
 
 ---
 
