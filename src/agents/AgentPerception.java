@@ -4,6 +4,10 @@ import behaviours.LeerCSVLiveBehaviour;
 import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.WakerBehaviour;
+import jade.domain.DFService;
+import jade.domain.FIPAAgentManagement.DFAgentDescription;
+import jade.domain.FIPAAgentManagement.ServiceDescription;
+import jade.domain.FIPAException;
 import jade.lang.acl.ACLMessage;
 
 /**
@@ -19,6 +23,9 @@ import jade.lang.acl.ACLMessage;
  *   performative = INFORM
  *   conversationId = "estado-stream"
  *   content = "INICIO" | "FIN"
+ *
+ * Resolución del receptor: se busca en el DF por ServiceType="interfaz-visualizacion"
+ * (mismo patrón que usan AgentAnalyst y AgentScoring) en lugar de fiarse del local name.
  */
 public class AgentPerception extends Agent {
 
@@ -35,8 +42,8 @@ public class AgentPerception extends Agent {
      */
     private static final int INACTIVIDAD_TICKS = 5;
 
-    /** Nombre local del agente UI (contrato fijo del sistema). */
-    private static final String UI_LOCAL_NAME = "AgentUI";
+    /** Tipo de servicio bajo el que AgentUI se registra en el DF. */
+    private static final String UI_SERVICE_TYPE = "interfaz-visualizacion";
 
     @Override
     protected void setup() {
@@ -76,11 +83,36 @@ public class AgentPerception extends Agent {
     }
 
     private void enviarEstado(String estado) {
+        AID uiAID = buscarUIenDF();
+        if (uiAID == null) {
+            System.err.println("[AgentPerception] AgentUI no encontrado en el DF. "
+                    + "Estado '" + estado + "' no entregado.");
+            return;
+        }
+
         ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
-        msg.addReceiver(new AID(UI_LOCAL_NAME, AID.ISLOCALNAME));
+        msg.addReceiver(uiAID);
         msg.setConversationId("estado-stream");
         msg.setContent(estado);
         send(msg);
-        System.out.println("[AgentPerception] Estado enviado a AgentUI: " + estado);
+        System.out.println("[AgentPerception] Estado enviado a "
+                + uiAID.getLocalName() + ": " + estado);
+    }
+
+    /** Busca en el DF un agente con ServiceType="interfaz-visualizacion". */
+    private AID buscarUIenDF() {
+        DFAgentDescription template = new DFAgentDescription();
+        ServiceDescription sd = new ServiceDescription();
+        sd.setType(UI_SERVICE_TYPE);
+        template.addServices(sd);
+        try {
+            DFAgentDescription[] resultados = DFService.search(this, template);
+            if (resultados != null && resultados.length > 0) {
+                return resultados[0].getName();
+            }
+        } catch (FIPAException e) {
+            System.err.println("[AgentPerception] Error buscando UI en DF: " + e.getMessage());
+        }
+        return null;
     }
 }

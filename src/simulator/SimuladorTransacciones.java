@@ -7,7 +7,7 @@ public class SimuladorTransacciones {
     public static void main(String[] args) {
         String archivoOriginal = "data/transactions.csv";
         String archivoLive = "data/transactions_live.csv";
-        int intervaloMs = 10;
+        int intervaloMs = 50;
 
         try (
                 BufferedReader reader = new BufferedReader(new FileReader(archivoOriginal));

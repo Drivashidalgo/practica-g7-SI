@@ -233,7 +233,6 @@ public class MonitorFrame extends JFrame {
         }
         feedCiclos.revalidate();
         feedCiclos.repaint();
-        scrollCiclos.getVerticalScrollBar().setValue(0);
     }
 
     /**
