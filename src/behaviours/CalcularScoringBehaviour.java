@@ -93,7 +93,7 @@ public class CalcularScoringBehaviour extends CyclicBehaviour {
     }
 
     private void procesarResultados(String resultado) {
-        AID uiAID = findAgent("interfaz-usuario");
+        AID uiAID = findAgent("interfaz-visualizacion");
         int alertas = 0;
 
         for (String linea : resultado.split("\n")) {

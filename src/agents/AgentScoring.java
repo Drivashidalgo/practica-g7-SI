@@ -38,7 +38,7 @@ public class AgentScoring extends Agent {
      * Intérprete Python en el PATH.
      * Windows: "python" o "py".  Linux/Mac: "python3".
      */
-    public static final String PYTHON_CMD = "C:\\Users\\jlope\\anaconda3\\envs\\tensorflow\\python.exe";
+    public static final String PYTHON_CMD = "C:\\Users\\mateo\\anaconda3\\envs\\sist_inteligentes\\python.exe";
 
     /** Script de inferencia (ruta relativa a la raíz del proyecto). */
     public static final String SCORE_SCRIPT = "data/score_fanin_gnn.py";
