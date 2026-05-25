@@ -120,7 +120,7 @@ El sistema sigue una arquitectura de pipeline multiagente con dos ramas de anál
 | Requisito | Versión mínima | Notas |
 |---|---|---|
 | Java JDK | 17 | Probado con Java 26 en IntelliJ IDEA |
-| Python | 3.8 | Solo para el módulo GNN (`AgentScoring`) |
+| Python | 3.10 | Solo para el módulo GNN (`AgentScoring`) |
 | IntelliJ IDEA | cualquier versión | Recomendado; no se usa Maven ni Gradle |
 
 ### Dependencias Java — JARs locales (`lib/`)
@@ -147,14 +147,13 @@ Copia los cinco archivos en `lib/` antes de compilar.
 ### Dependencias Python (`requirements.txt`)
 Solo necesarias para el agente `AgentScoring` (inferencia GNN).
 
-#### Instalación con Anaconda (obligatorio)
+#### Instalación Entorno Python - Desde Carpeta Raíz (obligatorio)
 ```bash
-conda create -n sist_inteligentes python=3.10
-conda activate sist_inteligentes
-pip install torch>=2.2.0 --index-url https://download.pytorch.org/whl/cpu
-pip install torch-geometric>=2.5.0
-pip install pandas>=2.2.0
-pip install scikit-learn>=1.4.0
+python -m venv venv_si
+venv_si\Scripts\activate
+pip install "numpy<2"
+pip install torch==2.2.0 --index-url https://download.pytorch.org/whl/cpu
+pip install torch-geometric pandas scikit-learn
 ```
 > ⚠️ **Una vez creado el entorno, copia la ruta del intérprete Python (`which python` en Mac/Linux o `where python` en Windows) y pégala en la línea **41** del archivo.**
 
@@ -173,7 +172,6 @@ Asegúrate de que el directorio de salida es `out/` y de que los cinco JARs est�
 Crea una configuración de ejecución en IntelliJ:
 
 - **Main class:** `jade.Boot`
-- **VM options:** `-cp lib/jade.jar;lib/jgrapht-core-1.5.3.jar;lib/jgrapht-io-1.5.3.jar;lib/jheaps-0.14.jar;lib/commons-codec-1.3.jar;out`
 - **Program arguments:**
 
 ```
@@ -182,17 +180,13 @@ Crea una configuración de ejecución en IntelliJ:
 
 > **Importante:** el agente constructor debe llamarse exactamente `constructor` (minúscula), porque `AgentPerception` tiene ese nombre hardcodeado como destino ACL.
 
-### 3. Lanzar el simulador (terminal separada)
+### 3. Lanzar el simulador (IntelliJ)
 
-En una terminal distinta, con el JADE ya arriba:
-
-```bash
-# Windows
-java -cp "lib/jade.jar;out" simulator.SimuladorTransacciones
-
-# Linux / macOS
-java -cp "lib/jade.jar:out" simulator.SimuladorTransacciones
-```
+1. Ve a **Run > Edit Configurations…**
+2. Pulsa **+** y selecciona **Application**
+3. Llámala **`Simulador`**
+4. En **Main class** escribe: `simulator.SimuladorTransacciones`
+5. Pulsa **OK** y ejecuta la configuración
 
 El simulador leerá `data/transactions.csv` y escribirá una transacción cada 50 ms en `data/transactions_live.csv`. La interfaz recibirá alertas en cuanto se acumulen suficientes aristas (umbral por defecto: 1 000).
 
@@ -209,7 +203,7 @@ El simulador leerá `data/transactions.csv` y escribirá una transacción cada 5
 
 | Constante | Valor por defecto | Descripción |
 |---|---|---|
-| `RISK_THRESHOLD` | `0.99` | Probabilidad mínima de la GNN para generar una alerta fan-in |
+| `RISK_THRESHOLD` | `0.999` | Probabilidad mínima de la GNN para generar una alerta fan-in |
 | `PYTHON_CMD` | ruta local | Ruta al intérprete Python con PyTorch instalado |
 | `SCORE_SCRIPT` | `data/score_fanin_gnn.py` | Script de inferencia GNN |
 | `GRAPH_TMP_FILE` | `data/grafo_tmp.txt` | Fichero temporal para volcado del grafo |
@@ -239,8 +233,7 @@ TX_ID,SENDER_ACCOUNT_ID,RECEIVER_ACCOUNT_ID,TX_TYPE,TX_AMOUNT,TIMESTAMP,IS_FRAUD
 664437,307,4732,TRANSFER,839527.25,101,True,2
 664438,4732,307,TRANSFER,839527.25,101,True,2
 ```
-
-> El simulador omite automáticamente las filas con `TIMESTAMP <= 100` (histórico antiguo).  
+ 
 > Las transacciones con `TX_AMOUNT <= 0` son descartadas por `CSVUtils`.
 
 ### Formato de `data/accounts.csv`
@@ -294,13 +287,11 @@ Generado automáticamente por `AgentScoring` antes de invocar el subproceso Pyth
 
 ## Declaración de uso de IA
 
-Este proyecto ha utilizado **Claude (Anthropic)** como asistente de programación a lo largo de todo el desarrollo. El grupo tenía experiencia previa en Python pero no en Java, por lo que la IA fue especialmente útil para trasladar la lógica que ya conocíamos a la sintaxis, patrones y APIs del ecosistema Java: estructuras de clases, herencia, interfaces de JADE (`Agent`, `Behaviour`, `ACLMessage`), el API de JGraphT y la construcción de interfaces Swing.
+Este proyecto ha utilizado **Claude (Anthropic)** como asistente de programación a lo largo de todo el desarrollo. El grupo tenía experiencia previa en Python pero no en Java, por lo que la IA fue especialmente útil para trasladar la lógica que ya conocíamos a la sintaxis, patrones y APIs del ecosistema Java.
 
 Concretamente, se usó para:
 
-- Entender y aplicar los patrones de JADE (`CyclicBehaviour`, `TickerBehaviour`, registro en el DF, filtros `MessageTemplate`) sin experiencia previa en el framework.
 - Generar esqueletos iniciales de agentes y behaviours que luego fueron adaptados e integrados manualmente.
 - Resolver dudas de sintaxis Java equivalentes a construcciones que el grupo ya dominaba en Python.
-- Redactar este README a partir del código fuente del proyecto.
 
-Todo el código ha sido revisado, depurado e integrado manualmente por los miembros del grupo. Las decisiones de arquitectura, los contratos de mensajes ACL y la lógica de negocio (detección de ciclos, scoring fan-in) fueron definidas por el equipo.
+Las decisiones de arquitectura, los contratos de mensajes ACL y la lógica de negocio (detección de ciclos, scoring fan-in) fueron definidas por el equipo.
