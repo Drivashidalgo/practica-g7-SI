@@ -32,7 +32,7 @@ public class AgentScoring extends Agent {
      * Variar este valor entre 0.2 y 0.7 cambia las métricas marginalmente
      * (el modelo produce probabilidades polarizadas, sin zona gris útil).
      */
-    public static final double RISK_THRESHOLD = 0.5;
+    public static final double RISK_THRESHOLD = 0.99;
 
     /**
      * Intérprete Python en el PATH.
