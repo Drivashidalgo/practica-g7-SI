@@ -30,14 +30,7 @@ public class SimuladorTransacciones {
             String linea;
 
             while ((linea = reader.readLine()) != null) {
-                String[] cols = linea.split(",");
-                // cols[5] es TIMESTAMP, saltamos las <= 100
-                if (cols.length > 5) {
-                    try {
-                        int ts = Integer.parseInt(cols[5].trim());
-                        if (ts <= 100) continue; // ignorar histórico
-                    } catch (NumberFormatException ignored) {}
-                }
+                
 
                 writer.write(linea);
                 writer.newLine();
